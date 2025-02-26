@@ -1,98 +1,77 @@
-# Copyright 2019-2024 The MathWorks, Inc.
-# This Dockerfile allows you to build a Docker® image with MATLAB® installed using the MATLAB Package
-# Manager. Use the optional build arguments to customize the version of MATLAB, list of products to
-# install, and the location at which to install MATLAB.
-
-# Here is an example docker build command with the optional build arguments.
-# docker build --build-arg MATLAB_RELEASE=R2024b
-#              --build-arg MATLAB_PRODUCT_LIST="MATLAB Deep_Learning_Toolbox Symbolic_Math_Toolbox"
-#              --build-arg MATLAB_INSTALL_LOCATION="/opt/matlab/R2024b"
-#              --build-arg LICENSE_SERVER=12345@hostname.com
-#              -t my_matlab_image_name .
+# Copyright 2023-2024 The MathWorks, Inc.
 
 # To specify which MATLAB release to install in the container, edit the value of the MATLAB_RELEASE argument.
 # Use uppercase to specify the release, for example: ARG MATLAB_RELEASE=R2021b
 ARG MATLAB_RELEASE=R2024b
 
-# Specify MATLAB Install Location.
-ARG MATLAB_INSTALL_LOCATION="/opt/MATLAB/${MATLAB_RELEASE}"
+# Specify the extra products to install into the image. These products can either be toolboxes or support packages.
+ARG ADDITIONAL_PRODUCTS="Communications_Toolbox Computer_Vision_Toolbox Control_System_Toolbox Curve_Fitting_Toolbox DSP_System_Toolbox Database_Toolbox Embedded_Coder Global_Optimization_Toolbox Image_Acquisition_Toolbox Image_Processing_Toolbox MATLAB MATLAB_Coder MATLAB_Compiler MATLAB_Compiler_SDK Optimization_Toolbox Robotics_System_Toolbox Robust_Control_Toolbox Signal_Processing_Toolbox Simulink Simulink_Coder Simulink_Compiler Simulink_Control_Design Stateflow Symbolic_Math_Toolbox System_Identification_Toolbox WLAN_Toolbox"
 
-# Specify license server information using the format: port@hostname
-ARG LICENSE_SERVER
+# This Dockerfile builds on the Ubuntu-based mathworks/matlab image.
+# To check the available matlab images, see: https://hub.docker.com/r/mathworks/matlab
+FROM mathworks/matlab:$MATLAB_RELEASE
 
-# When you start the build stage, this Dockerfile by default uses the Ubuntu-based matlab-deps image.
-# To check the available matlab-deps images, see: https://hub.docker.com/r/mathworks/matlab-deps
-FROM mathworks/matlab-deps:${MATLAB_RELEASE}
-
-# Declare build arguments to use at the current build stage.
+# Declare the global argument to use at the current build stage
 ARG MATLAB_RELEASE
-ARG MATLAB_INSTALL_LOCATION
-ARG LICENSE_SERVER
+ARG ADDITIONAL_PRODUCTS
 
-# Install mpm dependencies.
+# By default, the MATLAB container runs as user "matlab". To install mpm dependencies, switch to root.
+USER root
+
+# Install mpm dependencies
 RUN export DEBIAN_FRONTEND=noninteractive \
     && apt-get update \
     && apt-get install --no-install-recommends --yes \
-    wget \
-    ca-certificates \
+        wget \
+        ca-certificates \
     && apt-get clean \
     && apt-get autoremove \
     && rm -rf /var/lib/apt/lists/*
 
-# Add "matlab" user and grant sudo permission.
-RUN adduser --shell /bin/bash --disabled-password --gecos "" matlab \
-    && echo "matlab ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/matlab \
-    && chmod 0440 /etc/sudoers.d/matlab
+# Run mpm to install MathWorks products into the existing MATLAB installation directory,
+# and delete the mpm installation afterwards.
+# Modify it by setting the ADDITIONAL_PRODUCTS defined above,
+# e.g. ADDITIONAL_PRODUCTS="Statistics_and_Machine_Learning_Toolbox Parallel_Computing_Toolbox MATLAB_Coder".
+# If mpm fails to install successfully then output the logfile to the terminal, otherwise cleanup.
 
-# Set user and work directory.
+# Switch to user matlab, and pass in $HOME variable to mpm,
+# so that mpm can set the correct root folder for the support packages.
+WORKDIR /tmp
 USER matlab
-WORKDIR /home/matlab
-
-COPY input.txt /home/matlab/input.txt
-
-# Run mpm to install MATLAB in the target location and delete the mpm installation afterwards.
-# If mpm fails to install successfully, then print the logfile in the terminal, otherwise clean up.
-# Pass in $HOME variable to install support packages into the user's HOME folder.
 RUN wget -q https://www.mathworks.com/mpm/glnxa64/mpm \
     && chmod +x mpm \
+    && EXISTING_MATLAB_LOCATION=$(dirname $(dirname $(readlink -f $(which matlab)))) \
     && sudo HOME=${HOME} ./mpm install \
-    --inputfile /home/matlab/input.txt \
-#    --release=${MATLAB_RELEASE} \
-#    --destination=${MATLAB_INSTALL_LOCATION} \
-#    --products ${MATLAB_PRODUCT_LIST} \
+        --destination=${EXISTING_MATLAB_LOCATION} \
+        --release=${MATLAB_RELEASE} \
+        --products ${ADDITIONAL_PRODUCTS} \
     || (echo "MPM Installation Failure. See below for more information:" && cat /tmp/mathworks_root.log && false) \
-    && sudo rm -rf mpm /tmp/mathworks_root.log \
-    && sudo ln -s ${MATLAB_INSTALL_LOCATION}/bin/matlab /usr/local/bin/matlab
+    && sudo rm -rf mpm /tmp/mathworks_root.log
 
-# Copy toolboxes to temporary location on container
-COPY toolbox /home/matlab/toolbox_temp/
+# When running the container a license file can be mounted,
+# or a license server can be provided as an environment variable.
+# For more information, see https://hub.docker.com/r/mathworks/matlab
 
-# Merge the contents into the MATLAB toolbox location
-RUN sudo mkdir -p ${MATLAB_INSTALL_LOCATION}/toolbox \
-    && sudo cp -R /home/matlab/toolbox_temp/* ${MATLAB_INSTALL_LOCATION}/toolbox/ \
-    && sudo rm -rf /home/matlab/toolbox_temp
-
-# Note: Uncomment one of the following two ways to configure the license server.
-
-# Option 1. Specify the host and port of the machine that serves the network licenses
-# if you want to store the license information in an environment variable. This
-# is the preferred option. You can either use a build variable, like this:
-# --build-arg LICENSE_SERVER=27000@MyServerName or you can specify the license server
-# directly using: ENV MLM_LICENSE_FILE=27000@flexlm-server-name
-#ENV MLM_LICENSE_FILE=$LICENSE_SERVER
-
-# Option 2. Alternatively, you can put a license file into the container.
-# Enter the details of the license server in this file and uncomment the following line.
-COPY license.lic ${MATLAB_INSTALL_LOCATION}/licenses/
+# Alternatively, you can provide a license server to use
+# with the docker image while building the image.
+# Specify the host and port of the machine that serves the network licenses
+# if you want to bind in the license info as an environment variable.
+# You can also build with something like --build-arg LICENSE_SERVER=27000@MyServerName,
+# in which case you should uncomment the following two lines.
+# If these lines are uncommented, $LICENSE_SERVER must be a valid license
+# server or browser mode will not start successfully.
+# ARG LICENSE_SERVER
+# ENV MLM_LICENSE_FILE=$LICENSE_SERVER
 
 # The following environment variables allow MathWorks to understand how this MathWorks
-# product (MATLAB Dockerfile) is being used. This information helps us make MATLAB even better.
+# product is being used. This information helps us make MATLAB even better.
 # Your content, and information about the content within your files, is not shared with MathWorks.
 # To opt out of this service, delete the environment variables defined in the following line.
-# To learn more, see the Help Make MATLAB Even Better section in the accompanying README:
+# See the Help Make MATLAB Even Better section in the accompanying README to learn more:
 # https://github.com/mathworks-ref-arch/matlab-dockerfile#help-make-matlab-even-better
-#ENV MW_DDUX_FORCE_ENABLE=true MW_CONTEXT_TAGS=MATLAB:DOCKERFILE:V1
+#ENV MW_DDUX_FORCE_ENABLE=true MW_CONTEXT_TAGS=$MW_CONTEXT_TAGS,MATLAB:TOOLBOXES:DOCKERFILE:V1
 
-ENTRYPOINT ["matlab"]
-CMD [""]
+COPY --chown=matlab:matlab toolbox /home/matlab/toolbox
 
+WORKDIR /home/matlab
+# Inherit ENTRYPOINT and CMD from base image.
