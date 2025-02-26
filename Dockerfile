@@ -14,11 +14,8 @@
 # Use uppercase to specify the release, for example: ARG MATLAB_RELEASE=R2021b
 ARG MATLAB_RELEASE=R2024b
 
-# Specify the list of products to install into MATLAB.
-ARG MATLAB_PRODUCT_LIST="MATLAB"
-
 # Specify MATLAB Install Location.
-ARG MATLAB_INSTALL_LOCATION="/opt/matlab/${MATLAB_RELEASE}"
+ARG MATLAB_INSTALL_LOCATION="/opt/MATLAB/${MATLAB_RELEASE}"
 
 # Specify license server information using the format: port@hostname
 ARG LICENSE_SERVER
@@ -29,7 +26,6 @@ FROM mathworks/matlab-deps:${MATLAB_RELEASE}
 
 # Declare build arguments to use at the current build stage.
 ARG MATLAB_RELEASE
-ARG MATLAB_PRODUCT_LIST
 ARG MATLAB_INSTALL_LOCATION
 ARG LICENSE_SERVER
 
@@ -72,7 +68,8 @@ RUN wget -q https://www.mathworks.com/mpm/glnxa64/mpm \
 COPY toolbox /home/matlab/toolbox_temp/
 
 # Merge the contents into the MATLAB toolbox location
-RUN sudo cp -R /home/matlab/toolbox_temp/* ${MATLAB_INSTALL_LOCATION}/toolbox/ \
+RUN sudo mkdir -p ${MATLAB_INSTALL_LOCATION}/toolbox \
+    && sudo cp -R /home/matlab/toolbox_temp/* ${MATLAB_INSTALL_LOCATION}/toolbox/ \
     && sudo rm -rf /home/matlab/toolbox_temp
 
 # Note: Uncomment one of the following two ways to configure the license server.
