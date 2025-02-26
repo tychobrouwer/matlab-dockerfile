@@ -72,6 +72,7 @@ RUN wget -q https://www.mathworks.com/mpm/glnxa64/mpm \
 #ENV MW_DDUX_FORCE_ENABLE=true MW_CONTEXT_TAGS=$MW_CONTEXT_TAGS,MATLAB:TOOLBOXES:DOCKERFILE:V1
 
 COPY --chown=matlab:matlab toolbox /home/matlab/toolbox
+COPY --chown=matlab:matlab add-ons /home/matlab/add-ons
 
 WORKDIR /home/matlab
 # Inherit ENTRYPOINT and CMD from base image.
